@@ -1,4 +1,4 @@
-# Redeem Hoyo Codes Automatically
+# Redeem Hoyo Codes Automatically (Telegram alert)
 
 Don't want to miss out on free stuff but too lazy to do it by hand? This is what this script helps to solve. Works for Genshin, Honkai: Star Rail, and Zenless Zone Zero.
 
