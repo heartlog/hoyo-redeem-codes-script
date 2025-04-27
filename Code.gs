@@ -16,16 +16,15 @@ const profiles = {
   }
 };
 
-const discord_notify = true
-/** REMEMBER TO SET THOSE AND COOKIE IN PROJECT SETTINGS > SCRIPT PROPERTIES **/
-const myDiscordID = scriptProperties.getProperty('DISCORD_ID')
-const discordWebhook = scriptProperties.getProperty('WEBHOOK_URL')
+const telegram_notify = true; // Changed from discord_notify
+const myTelegramID = scriptProperties.getProperty('TELEGRAM_CHAT_ID'); // Your chat ID
+const telegramBotToken = scriptProperties.getProperty('TELEGRAM_BOT_TOKEN'); // Your bot token
 
-let keepCookieAlive = true
+let keepCookieAlive = true;
+const verbose = false;
+let first_run = false;
+let error = false;
 
-const verbose = false
-let first_run = false
-let error = false
 const cdkeysbygame = fetchJson();
 const last_execution = scriptProperties.getProperty('last_execution');
 if (last_execution <= 0) {
@@ -39,33 +38,32 @@ function fetchJson() {
   return jsonData;
 }
 
-const ALREADY_IN_USE = -2017
-const ALREADY_IN_USE_2 = -2018
-const EXPIRED = -2001
-const INVALID = -2003
-const SUCCESSFUL = 0
+const ALREADY_IN_USE = -2017;
+const ALREADY_IN_USE_2 = -2018;
+const EXPIRED = -2001;
+const INVALID = -2003;
+const SUCCESSFUL = 0;
 
 function sendGetRequestsWithCdkeys(urlDict, profile) {
   let results = [];
 
   for (const game in urlDict) {
     const fullUrl = urlDict[game].url;
-    if(!fullUrl) {
-      continue
+    if (!fullUrl) {
+      continue;
     }
     const cdkeys = cdkeysbygame[game];
-    cdkeys.forEach(function(cdkeydict) {
-      if(!first_run && cdkeydict.added_at * 1000 < last_execution && !keepCookieAlive) {
-        // If code was added before last run of this script, dont try to redeem it again.
-        return
+    cdkeys.forEach(function (cdkeydict) {
+      if (!first_run && cdkeydict.added_at * 1000 < last_execution && !keepCookieAlive) {
+        return;
       }
-      const cookies = scriptProperties.getProperty('COOKIE_' + profile) ?? scriptProperties.getProperty(`COOKIE`); // Replace with your actual cookie token in the script properties!!!
+      const cookies = scriptProperties.getProperty('COOKIE_' + profile) ?? scriptProperties.getProperty(`COOKIE`);
       const cdkey = cdkeydict.code;
 
       const isRisk = 'request' in urlDict[game];
-      const url = isRisk? fullUrl : replaceCdkeyInUrl(fullUrl, cdkey);
+      const url = isRisk ? fullUrl : replaceCdkeyInUrl(fullUrl, cdkey);
       let options = {
-        'method': isRisk? 'post' : 'get',
+        'method': isRisk ? 'post' : 'get',
         'headers': {
           'Cookie': `${cookies}`,
           'Accept': 'application/json, text/plain, */*',
@@ -77,8 +75,8 @@ function sendGetRequestsWithCdkeys(urlDict, profile) {
         },
         'muteHttpExceptions': true
       };
-      if(isRisk) {
-        let body = {...urlDict[game].request};
+      if (isRisk) {
+        let body = { ...urlDict[game].request };
         body.cdkey = cdkey;
         body.lang = 'en';
         options.payload = JSON.stringify(body);
@@ -89,45 +87,38 @@ function sendGetRequestsWithCdkeys(urlDict, profile) {
         keepCookieAlive = false;
         const jsonData = JSON.parse(response.getContentText());
         const retcode = jsonData.retcode;
-        if(![ALREADY_IN_USE, ALREADY_IN_USE_2, SUCCESSFUL].includes(retcode)) {
+        if (![ALREADY_IN_USE, ALREADY_IN_USE_2, SUCCESSFUL].includes(retcode)) {
           error = true;
         }
         let resultText = `${game}: ${cdkey}: ${jsonData.message}`;
-        if(verbose) {
+        if (verbose) {
           resultText += ` ${response}`;
         }
         Logger.log(resultText);
-        if(verbose || ![ALREADY_IN_USE, ALREADY_IN_USE_2].includes(retcode)) {
-          results.push(resultText); // Store the result in the array
+        if (verbose || ![ALREADY_IN_USE, ALREADY_IN_USE_2].includes(retcode)) {
+          results.push(resultText);
         }
       } catch (e) {
         Logger.log(`${game}: Failed to send request for ${cdkey}: ${e.message}`);
-        results.push(`$${game}: {cdkey}: Failed to send request`); // Store the error in the array
+        results.push(`${game}: ${cdkey}: Failed to send request`);
         error = true;
       }
       Utilities.sleep(5500);
     });
-
   }
 
-  return results; // Return ARRAY
+  return results;
 }
 
-
 function replaceCdkeyInUrl(url, cdkey) {
-  // Remove any existing cdkey parameter
   let cleanedUrl = url.replace(/cdkey=[^&]*(&)?/, '');
-
-  // Ensure no trailing '&' or '?' is left dangling
   cleanedUrl = cleanedUrl.replace(/[\?&]$/, '');
-
-  // Append the new cdkey parameter
   const separator = cleanedUrl.includes('?') ? '&' : '?';
   return `${cleanedUrl}${separator}cdkey=${cdkey}`;
 }
 
 function first_main() {
-  Logger.log("Running first_main, only run this the first time or when you had errors for more than a day so that you test old but not expired codes too.")
+  Logger.log("Running first_main, only run this the first time or when you had errors for more than a day so that you test old but not expired codes too.");
   first_run = true;
   main();
 }
@@ -144,8 +135,8 @@ function main() {
     })
     .flat();
 
-  if (discord_notify && discordWebhook && hoyoResp.length > 0) {
-    sendDiscord(hoyoResp);
+  if (telegram_notify && hoyoResp.length > 0) {
+    sendTelegram(hoyoResp);
   }
 
   if (!error) {
@@ -153,39 +144,51 @@ function main() {
   }
 }
 
-function discordPing() {
-  return myDiscordID && error ? `<@${myDiscordID}>, You got errors while processing redemption codes` : 'Redemption codes redeemed successfully';
+// ---------------------------
+// Telegram notification functions
+// ---------------------------
+
+function telegramPing() {
+  return error ? "⚠️ Error occurred during code redemption!" : "✅ Redemption codes processed successfully!";
 }
 
-function sendDiscord(data) {
-  let currentChunk = `${discordPing()}\n`;
-  
+function sendTelegram(data) {
+  const token = telegramBotToken;
+  const chatId = myTelegramID;
+  if (!token || !chatId) {
+    Logger.log('Telegram token or chat ID not set.');
+    return;
+  }
+
+  let currentChunk = `${telegramPing()}\n`;
+
   for (let i = 0; i < data.length; i++) {
-    if (currentChunk.length + data[i].length >= 1899) {
-      postWebhook(currentChunk);
+    if (currentChunk.length + data[i].length >= 4000) { // Telegram message limit is 4096 chars
+      postTelegram(currentChunk, token, chatId);
       currentChunk = '';
     }
     currentChunk += `${data[i]}\n`;
   }
   if (currentChunk) {
-    postWebhook(currentChunk);
+    postTelegram(currentChunk, token, chatId);
   }
 }
 
-function postWebhook(data) {
-  let payload = JSON.stringify({
-    'username': 'auto-redeem',
-    'avatar_url': 'https://i.imgur.com/LI1D4hP.png',
-    'content': data
-  });
+function postTelegram(message, token, chatId) {
+  const telegramUrl = `https://api.telegram.org/bot${token}/sendMessage`;
+  const payload = {
+    'chat_id': chatId,
+    'text': message,
+    'parse_mode': 'Markdown'
+  };
 
   const options = {
-    method: 'POST',
+    method: 'post',
     contentType: 'application/json',
-    payload: payload,
+    payload: JSON.stringify(payload),
     muteHttpExceptions: true
   };
 
-  const response = UrlFetchApp.fetch(discordWebhook, options);
-  Logger.log(`Posted to webhook, returned ${response}`);
+  const response = UrlFetchApp.fetch(telegramUrl, options);
+  Logger.log(`Posted to Telegram, returned: ${response.getContentText()}`);
 }
